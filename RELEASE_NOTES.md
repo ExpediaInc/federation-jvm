@@ -1,5 +1,9 @@
 # Release notes
 
+## v0.4.4
+
+- Support for Directive filtering during schema transformation
+
 ## v0.4.3
 
 *Bugfixes:*

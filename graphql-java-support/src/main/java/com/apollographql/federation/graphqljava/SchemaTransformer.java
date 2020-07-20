@@ -6,6 +6,7 @@ import graphql.schema.DataFetcher;
 import graphql.schema.DataFetcherFactory;
 import graphql.schema.FieldCoordinates;
 import graphql.schema.GraphQLCodeRegistry;
+import graphql.schema.GraphQLDirective;
 import graphql.schema.GraphQLDirectiveContainer;
 import graphql.schema.GraphQLNamedType;
 import graphql.schema.GraphQLObjectType;
@@ -20,6 +21,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public final class SchemaTransformer {
@@ -27,11 +29,13 @@ public final class SchemaTransformer {
     // Apollo Gateway will fail composition if it sees standard directive definitions.
     private static final Set<String> STANDARD_DIRECTIVES =
             new HashSet<>(Arrays.asList("deprecated", "include", "skip"));
+    private static final Predicate<GraphQLDirective> DEFAULT_INCLUDE_DIRECTIVE = n -> true;
     private final GraphQLSchema originalSchema;
     private TypeResolver entityTypeResolver = null;
     private DataFetcher entitiesDataFetcher = null;
     private DataFetcherFactory entitiesDataFetcherFactory = null;
     private Coercing coercingForAny = _Any.defaultCoercing;
+    private Predicate<GraphQLDirective> includeDirective = DEFAULT_INCLUDE_DIRECTIVE;
 
     SchemaTransformer(GraphQLSchema originalSchema) {
         this.originalSchema = originalSchema;
@@ -62,6 +66,14 @@ public final class SchemaTransformer {
         return this;
     }
 
+    public Predicate<GraphQLDirective> getIncludeDirective() {
+        return includeDirective;
+    }
+
+    public void setIncludeDirective(Predicate<GraphQLDirective> includeDirective) {
+        this.includeDirective = includeDirective;
+    }
+
     @NotNull
     public final GraphQLSchema build() throws SchemaProblem {
         final List<GraphQLError> errors = new ArrayList<>();
@@ -75,7 +87,7 @@ public final class SchemaTransformer {
                 GraphQLCodeRegistry.newCodeRegistry(originalSchema.getCodeRegistry());
 
         // Print the original schema as sdl and expose it as query { _service { sdl } }
-        final String sdl = sdl(originalSchema);
+        final String sdl = sdl(originalSchema, includeDirective);
         final GraphQLObjectType.Builder newQueryType = GraphQLObjectType.newObject(originalQueryType)
                 .field(_Service.field);
         newCodeRegistry.dataFetcher(FieldCoordinates.coordinates(
@@ -144,6 +156,10 @@ public final class SchemaTransformer {
     }
 
     public static String sdl(GraphQLSchema schema) {
+        return sdl(schema, DEFAULT_INCLUDE_DIRECTIVE);
+    }
+
+    public static String sdl(GraphQLSchema schema, Predicate<GraphQLDirective> includeDirective) {
         // Gather directive definitions to hide.
         final Set<String> hiddenDirectiveDefinitions = new HashSet<>();
         hiddenDirectiveDefinitions.addAll(STANDARD_DIRECTIVES);
@@ -172,7 +188,8 @@ public final class SchemaTransformer {
                 .includeSchemaDefinition(true)
                 .includeDirectives(true)
                 .includeDirectiveDefinitions(def -> !hiddenDirectiveDefinitions.contains(def.getName()))
-                .includeTypeDefinitions(def -> !hiddenTypeDefinitions.contains(def.getName()));
+                .includeTypeDefinitions(def -> !hiddenTypeDefinitions.contains(def.getName()))
+                .includeDirectives(includeDirective);
         return new FederationSdlPrinter(options).print(schema);
     }
 }
